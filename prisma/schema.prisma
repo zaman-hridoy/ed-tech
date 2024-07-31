@@ -1,0 +1,441 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+
+enum UserRole {
+  Student
+  Educator
+  ContentManager
+}
+model Profile {
+  id Int @id @default(autoincrement())
+  userId Int @unique
+  name String
+  imageUrl String @db.Text
+  email String @db.Text
+  role UserRole
+  isActive Boolean @default(false)
+
+  servers Server[]
+  channels Channel[]
+  members Member[]
+  notifications Notification[]
+  annotations Annotation[]
+  annotationNotes AnnotationNote[]
+
+
+  conversationsInitiated Conversation[] @relation("MemberOneProfile")
+  conversationsReceived Conversation[] @relation("MemberTwoProfile")
+
+  sentFriendRequests   FriendRequest[] @relation("sentFriendRequests")
+  receivedFriendRequests FriendRequest[] @relation("receivedFriendRequests")
+
+  // friends              Profile[]          @relation("Friends", references: [id])
+  blockedUsers         BlockedUser[]          @relation("UserWhomeBlockedUser")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+enum FriendRequestStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+}
+
+model FriendRequest {
+  id         Int      @id @default(autoincrement())
+  status     FriendRequestStatus @default(PENDING)   // "pending", "accepted", "rejected"
+  createdAt  DateTime @default(now())
+
+  // Foreign keys
+  senderId   Int
+  receiverId Int
+
+  // Relationships
+  sender   Profile @relation("sentFriendRequests", fields: [senderId], references: [id], onDelete: Cascade)
+  receiver Profile @relation("receivedFriendRequests", fields: [receiverId], references: [id], onDelete: Cascade)
+
+  notifications Notification[]
+
+  @@index([senderId])
+  @@index([receiverId])
+}
+
+model BlockedUser {
+  id         Int      @id @default(autoincrement())
+  createdAt  DateTime @default(now())
+
+  // Foreign keys
+  profileId  Int
+  blockedProfileId Int
+
+  // Relationships
+  blockedProfile  Profile @relation("UserWhomeBlockedUser", fields: [blockedProfileId], references: [id], onDelete: Cascade)
+}
+
+
+model Server {
+  id Int @id @default(autoincrement())
+  name String
+  bookId Int
+  imageUrl String @db.Text
+  inviteCode String @unique
+
+  profileId Int
+  profile Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  channels Channel[]
+  members Member[]
+
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([profileId])
+}
+
+enum MemberRole {
+  ADMIN
+  MODERATOR
+  GUEST
+}
+
+
+model Member {
+  id Int @id @default(autoincrement())
+  role MemberRole @default(GUEST)
+
+  profileId Int
+  profile Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  serverId Int?
+  server Server? @relation(fields: [serverId], references: [id], onDelete: Cascade)
+
+  channelId Int?
+  channel Channel? @relation(fields: [channelId], references: [id], onDelete: Cascade)
+
+  conversationId Int?
+  conversation Conversation? @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  messages Message[]
+  directMessages DirectMessage[]
+  mentions Mention[]
+  pined Pined[]
+  reaction Reaction[]
+
+  // conversationsInitiated Conversation[] @relation("MemberOne")
+  // conversationsReceived Conversation[] @relation("MemberTwo")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([profileId])
+  @@index([serverId])
+}
+
+
+
+enum ChannelType {
+  TEXT
+  VOICE
+}
+
+
+model Channel {
+  id Int @id @default(autoincrement())
+  name String
+  description String? @db.Text
+  type ChannelType @default(TEXT)
+  isPublic Boolean @default(false)
+  isOpened Boolean @default(false)
+  inviteCode String @unique @default(cuid())
+  is_archived Boolean @default(false)
+
+  profileId Int
+  profile Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  serverId Int?
+  server Server? @relation(fields: [serverId], references: [id], onDelete: Cascade)
+
+  members Member[]
+  messages Message[]
+  permissions ChannelPermission[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([profileId])
+  @@index([serverId])
+}
+
+model ChannelPermission {
+  id Int @id @default(autoincrement())
+  manage_channel Boolean  @default(false) //allow members to change this channel name, description, text settings also delete this channel
+  send_message Boolean @default(true) // allow members to send messages in this channel
+  attach_files Boolean @default(true) // allow members to upload files or media in this channel
+  send_voice_messages Boolean @default(false)
+
+  channelId Int
+  channel Channel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([channelId])
+}
+
+
+
+model Message {
+  id Int @id @default(autoincrement())
+  content String @db.Text
+
+  flags Int @default(0)
+  mention_everyone Boolean @default(false)
+
+  referencedMessageId Int?
+  referencedMessage  Message? @relation("ReferencedMessage", fields: [referencedMessageId], references: [id])
+  replies Message[] @relation("ReferencedMessage")
+
+  memberId Int
+  member Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  channelId Int
+  channel Channel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+
+  isDeleted Boolean @default(false)
+
+  attachments Attachment[]
+  embeds Embeds[]
+  mentions Mention[]
+  notifications Notification[]
+  pined Pined[]
+  reaction Reaction[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([memberId])
+  @@index([channelId])
+}
+
+model Conversation {
+  id Int @id @default(autoincrement())
+  isOpened Boolean @default(false)
+
+  memberOneProfileId Int
+  memberOneProfile Profile @relation("MemberOneProfile", fields: [memberOneProfileId], references: [id], onDelete: Cascade)
+
+  memberTwoProfileId Int
+  memberTwoProfile Profile @relation("MemberTwoProfile", fields: [memberTwoProfileId], references: [id], onDelete: Cascade)
+
+
+  members Member[]
+
+  // memberOneId Int
+  // memberOne Member @relation("MemberOne", fields: [memberOneId], references: [id], onDelete: Cascade)
+
+  // memberTwoId Int
+  // memberTwo Member @relation("MemberTwo", fields: [memberTwoId], references: [id], onDelete: Cascade)
+
+  directMessages DirectMessage[]
+
+  @@index([memberOneProfileId])
+  @@index([memberTwoProfileId])
+  @@unique([memberOneProfileId, memberTwoProfileId])
+}
+
+model DirectMessage {
+  id Int @id @default(autoincrement())
+  content String @db.Text
+
+  memberId Int
+  member Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  conversationId Int
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  referencedMessageId Int?
+  referencedMessage  DirectMessage? @relation("ReferencedDirectMessage", fields: [referencedMessageId], references: [id])
+  replies DirectMessage[] @relation("ReferencedDirectMessage")
+
+  isDeleted Boolean @default(false)
+
+  attachments Attachment[]
+  embeds Embeds[]
+  mentions Mention[]
+  notifications Notification[]
+  pined Pined[]
+  reaction Reaction[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([memberId])
+  @@index([conversationId])
+}
+
+model Attachment {
+  id Int @id @default(autoincrement())
+  contentType String
+  filename String @db.Text
+  size Int
+  url String @db.Text
+
+  messageId Int?
+  message Message? @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  directMessageId Int?
+  directMessage DirectMessage? @relation(fields: [directMessageId], references: [id], onDelete: Cascade)
+}
+
+enum EmbedsUrlType {
+  CONFERENCE_ROOM
+  OTHERS
+}
+
+model Embeds {
+  id Int @id @default(autoincrement())
+  type EmbedsUrlType
+  url String @db.Text
+
+  messageId Int?
+  message Message? @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  directMessageId Int?
+  directMessage DirectMessage? @relation(fields: [directMessageId], references: [id], onDelete: Cascade)
+}
+
+model Reaction {
+  id Int @id @default(autoincrement())
+  emoji String
+  unified String
+  name String @db.Text
+
+  channelId Int?
+  conversationId Int?
+
+  memberId Int
+  member Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  messageId Int?
+  message Message? @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  directMessageId Int?
+  directMessage DirectMessage? @relation(fields: [directMessageId], references: [id], onDelete: Cascade)
+
+  @@index([messageId])
+  @@index([directMessageId])
+  @@index([unified])
+  @@unique([messageId, unified, memberId])
+}
+
+model Mention {
+  id Int @id @default(autoincrement())
+
+  messageId Int?
+  message Message? @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  directMessageId Int?
+  directMessage DirectMessage? @relation(fields: [directMessageId], references: [id], onDelete: Cascade)
+
+  memberId Int
+  member Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@index([messageId])
+  @@index([memberId])
+}
+
+model Pined {
+  id Int @id @default(autoincrement())
+
+  channelId Int?
+  conversationId Int?
+
+  messageId Int?
+  message Message? @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  directMessageId Int?
+  directMessage DirectMessage? @relation(fields: [directMessageId], references: [id], onDelete: Cascade)
+
+  memberId Int
+  member Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@index([channelId])
+  @@index([conversationId])
+}
+
+model Notification {
+  id Int @id @default(autoincrement())
+
+  profileId Int
+  profile Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+
+  channelId Int?
+  messageId Int?
+  message Message? @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  conversationId Int?
+  directMessageId Int?
+  directMessage DirectMessage? @relation(fields: [directMessageId], references: [id], onDelete: Cascade)
+
+  frientRequestId Int?
+  friendRequest FriendRequest? @relation(fields: [frientRequestId], references: [id], onDelete: Cascade)
+
+  isRead Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([profileId])
+  @@index([channelId])
+  @@index([conversationId])
+  @@index([frientRequestId])
+}
+
+
+enum VideoProvider {
+  YOUTUBE
+  VIMEO
+  FILE
+}
+model Annotation {
+  id Int @id @default(autoincrement())
+  videoUrl String @db.Text
+  provider VideoProvider
+  profileId Int
+  profile Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  notes AnnotationNote[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([profileId])
+}
+
+model AnnotationNote {
+    id Int @id @default(autoincrement())
+    profileId Int
+    profile Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+    annotationId Int
+    annotation Annotation @relation(fields: [annotationId], references: [id], onDelete: Cascade)
+
+    title String @db.Text
+    note String @db.Text
+    duration Int
+    played Int
+
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+
+    @@index([profileId])
+    @@index([annotationId])
+}
